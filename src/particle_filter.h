@@ -26,17 +26,12 @@ struct Particle {
 
 
 class ParticleFilter {
-	
-	// Number of particles to draw
-	int num_particles; 
-	
-	
-	
+
+    // number of particles to be used
+	int num_particles;
+
 	// Flag, if filter is initialized
 	bool is_initialized;
-	
-	// Vector of weights of all particles
-	std::vector<double> weights;
 	
 public:
 	
@@ -45,10 +40,10 @@ public:
 
 	// Constructor
 	// @param num_particles Number of particles
-	ParticleFilter() : num_particles(0), is_initialized(false) {}
+	ParticleFilter() : num_particles(201), is_initialized(false) {}
 
 	// Destructor
-	~ParticleFilter() {}
+	~ParticleFilter() = default;
 
 	/**
 	 * init Initializes particle filter by initializing particles to Gaussian

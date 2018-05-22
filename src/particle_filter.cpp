@@ -45,7 +45,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
-    // TODO: Add measurements to each particle and add random Gaussian noise.
+    // Add measurements to each particle and add random Gaussian noise.
     // NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
     //  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
     //  http://www.cplusplus.com/reference/random/default_random_engine/
@@ -61,11 +61,12 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     for (Particle &p : particles) {
         double x_offset;
         double y_offset;
+
+        // avoid division by zero
         if (fabs(yaw_rate < 0.00001)) {
             double distance_change = velocity * delta_t;
             x_offset = distance_change * cos(p.theta);
             y_offset = distance_change * sin(p.theta);
-            yaw_rate = 0;
         } else {
             x_offset = velocity_over_yaw_rate * (sin(p.theta + yaw_change) - sin(p.theta));
             y_offset = velocity_over_yaw_rate * (cos(p.theta) - cos(p.theta + yaw_change));
@@ -75,6 +76,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
         p.y += y_offset;
         p.theta += yaw_change;
 
+        // add gaussian noise for motion
         p.x += dist_x(gen);
         p.y += dist_y(gen);
         p.theta += dist_theta(gen);
@@ -87,7 +89,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
     // observed measurement to this particular landmark.
     for (LandmarkObs &lm_obs : observations) {
         double dist_closest = std::numeric_limits<double>::max();
-        LandmarkObs *lm_pred_closest = NULL;
+        LandmarkObs *lm_pred_closest = nullptr;
         for (LandmarkObs &lm_pred : predicted) {
             auto dist = sqrt(pow(lm_pred.x - lm_obs.x, 2) + pow(lm_pred.y - lm_obs.y, 2));
             if (dist < dist_closest) {
@@ -96,7 +98,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
             }
         }
 
-        if (lm_pred_closest != NULL) {
+        if (lm_pred_closest != nullptr) {
             int id_closed =  (*lm_pred_closest).id;
             lm_obs.id = id_closed;
         }
@@ -105,7 +107,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                    const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
-    // TODO: Update the weights of each particle using a multi-variate Gaussian distribution. You can read
+    // Update the weights of each particle using a multi-variate Gaussian distribution. You can read
     //   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
     // NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
     //   according to the MAP'S coordinate system. You will need to transform between the two systems.
@@ -119,12 +121,17 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
     // create map id to landmark to speed up later referencing to landmarks for each particle and observation
     std::map<int, LandmarkObs> lm_predicted_by_id;
-    vector<LandmarkObs> lm_predicted_particle;
     for (auto const &lm : map_landmarks.landmark_list) {
         lm_predicted_by_id[lm.id_i] = LandmarkObs{lm.id_i, lm.x_f, lm.y_f};
     }
 
+    const double std_lm_x = std_landmark[0];
+    const double std_lm_y = std_landmark[1];
+    const double std_lm_x_sq2_mul2 = 2 * pow(std_lm_x, 2);
+    const double std_lm_y_sq2_mul2 = 2 * pow(std_lm_y, 2);
+    const double gaussian_lm_divisor = (1. / (2. * M_PI * std_lm_x * std_lm_y));
 
+    // update each partice's weight
     for (Particle &p : particles) {
         const double px = p.x;
         const double py = p.y;
@@ -160,23 +167,22 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         dataAssociation(lm_predicted_particle, lm_obs_particle);
 
         // update particle weight by using multi variate gaussian distribution
-        const double std_lm_x = std_landmark[0];
-        const double std_lm_y = std_landmark[1];
-        const double std_lm_x_sq2_mul2 = (2 * pow(std_lm_x, 2));
-        const double std_lm_y_sq2_mul2 = (2 * pow(std_lm_y, 2));
-        const double gaussian_lm_divisor = (1 / (2 * M_PI * std_lm_x * std_lm_y));
         double pweight = 1.;
         for (const LandmarkObs &lm_obs : lm_obs_particle) {
             auto obs_x = lm_obs.x;
             auto obs_y = lm_obs.y;
-            auto lm_prediced = lm_predicted_by_id[lm_obs.id];
-            // TODO how to deal with not found map landmark ?
-            auto pred_x = lm_prediced.x;
-            auto pred_y = lm_prediced.y;
+            auto lm_predicted = lm_predicted_by_id[lm_obs.id];
+            if (lm_predicted.id == 0) {
+                // handle if no map landmark was found for observed landmark
+                pweight = 0;
+                break;
+            }
+            auto pred_x = lm_predicted.x;
+            auto pred_y = lm_predicted.y;
             auto diff_x = pred_x - obs_x;
             auto diff_y = pred_y - obs_y;
-            double observation_weight = gaussian_lm_divisor * exp(-(pow(diff_x, 2) / std_lm_x_sq2_mul2) +
-                                                                  (pow(diff_y, 2) / std_lm_y_sq2_mul2));
+            double observation_weight = gaussian_lm_divisor * exp(-(pow(diff_x, 2) / std_lm_x_sq2_mul2 +
+                    (pow(diff_y, 2) / std_lm_y_sq2_mul2)));
             pweight *= observation_weight;
         }
         p.weight = pweight;
@@ -193,9 +199,6 @@ void ParticleFilter::resample() {
                                          [](const Particle &a, const Particle &b) {
                                              return a.weight < b.weight;
                                          })).weight;
-    // TODO max_weight too high - some kind of overflow?
-
-    std::cout << "max weight=" << max_weight << std::endl;
 
     default_random_engine gen;
     double beta = 0.;
@@ -203,12 +206,12 @@ void ParticleFilter::resample() {
     auto index = index_dist(gen);
 
     std::uniform_real_distribution<double> weight_dist(0., max_weight);
-    std::vector<Particle> particles_resampled(num_particles);
+    std::vector<Particle> particles_resampled;
 
     for (int i = 0; i < num_particles; i++) {
         beta += weight_dist(gen) * 2.;
-        double weight = particles[index].weight;
-        while (beta > weight) {
+        double weight;
+        while (beta > (weight = particles[index].weight)) {
             beta -= weight;
             index = (index + 1) % num_particles;
         }
